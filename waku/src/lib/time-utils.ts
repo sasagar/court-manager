@@ -153,9 +153,13 @@ export function formatDateJapanese(dateStr: string): string {
  * console.log(next); // "2024-01-09"
  */
 export function getNextDay(dateStr: string): string {
-  const date = new Date(dateStr);
-  date.setDate(date.getDate() + 1);
-  return date.toISOString().split('T')[0];
+  // YYYY-MM-DD形式の日付を解析（ローカルタイムゾーンとして解釈）
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day + 1);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 /**
@@ -169,9 +173,13 @@ export function getNextDay(dateStr: string): string {
  * console.log(prev); // "2024-01-07"
  */
 export function getPreviousDay(dateStr: string): string {
-  const date = new Date(dateStr);
-  date.setDate(date.getDate() - 1);
-  return date.toISOString().split('T')[0];
+  // YYYY-MM-DD形式の日付を解析（ローカルタイムゾーンとして解釈）
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day - 1);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 /**

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { shiftsApi, staffApi, type Shift, type Staff } from '../lib/api-client';
-import { formatTimeJST, timeToTimestamp } from '../lib/time-utils';
+import { formatTimeJST, timeToTimestamp, getTodayJST, getNextDay, getPreviousDay } from '../lib/time-utils';
 import { getShiftStatusLabel, getShiftStatusBadgeColor } from '../constants/status';
 
 type ShiftsManagerProps = {
@@ -16,10 +16,7 @@ export function ShiftsManager({ facilityId }: ShiftsManagerProps) {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  });
+  const [selectedDate, setSelectedDate] = useState(() => getTodayJST());
 
   // Form state
   const [formData, setFormData] = useState({
@@ -117,9 +114,11 @@ export function ShiftsManager({ facilityId }: ShiftsManagerProps) {
 
   // 日付を前後に移動
   const changeDate = (days: number) => {
-    const current = new Date(selectedDate);
-    current.setDate(current.getDate() + days);
-    setSelectedDate(current.toISOString().split('T')[0]);
+    if (days > 0) {
+      setSelectedDate(getNextDay(selectedDate));
+    } else if (days < 0) {
+      setSelectedDate(getPreviousDay(selectedDate));
+    }
   };
 
   if (loading) {
@@ -174,7 +173,7 @@ export function ShiftsManager({ facilityId }: ShiftsManagerProps) {
           </svg>
         </button>
         <button
-          onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+          onClick={() => setSelectedDate(getTodayJST())}
           className="px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg"
         >
           今日

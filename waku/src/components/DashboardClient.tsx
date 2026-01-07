@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { facilitiesApi, sessionsApi, bookingsApi, courtBlocksApi, breaksApi, type Facility, type CourtBlock } from '../lib/api-client';
+import { facilitiesApi, sessionsApi, bookingsApi, courtBlocksApi, breaksApi, type Facility, type CourtBlock, type CourtWithSession, type Session } from '../lib/api-client';
 import { useRealtimeCourts } from '../hooks/useRealtimeCourts';
 import { CourtCard } from './CourtCard';
 import { ShiftPanel } from './ShiftPanel';
@@ -13,6 +13,8 @@ import { CreateSlotModal } from './CreateSlotModal';
 import { AddBookingModal } from './AddBookingModal';
 import { SessionDetailModal } from './SessionDetailModal';
 import { QRCodeModal } from './QRCodeModal';
+import { ReservationCard, type ReservationCardData } from './ReservationCard';
+import { AddReservationCard } from './AddReservationCard';
 
 type ViewMode = 'cards' | 'timeline';
 
@@ -29,6 +31,70 @@ function formatDisplayDate(dateStr: string): string {
   const date = new Date(dateStr + 'T00:00:00');
   const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
   return `${date.getMonth() + 1}月${date.getDate()}日（${weekdays[date.getDay()]}）`;
+}
+
+/**
+ * コートとセッションのデータから予約カードデータを構築する
+ * - lockingとcompletedはスキップ
+ * - 枠プランの場合は各bookingを個別カードとして表示
+ * - 開始時刻順にソート
+ */
+function buildReservationCards(courts: CourtWithSession[]): ReservationCardData[] {
+  const cards: ReservationCardData[] = [];
+
+  for (const court of courts) {
+    // sessions配列またはcurrentSessionを取得
+    const sessions: Session[] = court.sessions || (court.currentSession ? [court.currentSession] : []);
+
+    for (const session of sessions) {
+      // lockingとcompletedはスキップ
+      if (session.status === 'locking' || session.status === 'completed') continue;
+
+      if (session.isSlotBased && session.bookings && session.bookings.length > 0) {
+        // 枠プラン：各bookingを個別カードとして表示
+        for (const booking of session.bookings) {
+          cards.push({
+            cardId: `booking-${booking.id}`,
+            courtId: court.id,
+            courtName: court.name,
+            sessionId: session.id,
+            session,
+            booking,
+            displayName: booking.customerName,
+            displayCount: booking.customerCount,
+            paymentStatus: booking.paymentStatus,
+            startTime: session.startTime,
+            estimatedEndTime: session.estimatedEndTime,
+            displayColor: session.displayColor,
+            planName: session.planName,
+            planShortName: session.planShortName,
+            assignments: session.assignments,
+          });
+        }
+      } else {
+        // 通常セッション：1セッション=1カード
+        cards.push({
+          cardId: `session-${session.id}`,
+          courtId: court.id,
+          courtName: court.name,
+          sessionId: session.id,
+          session,
+          displayName: session.customerName || '未設定',
+          displayCount: session.customerCount,
+          paymentStatus: session.paymentStatus || 'unpaid',
+          startTime: session.startTime,
+          estimatedEndTime: session.estimatedEndTime,
+          displayColor: session.displayColor,
+          planName: session.planName,
+          planShortName: session.planShortName,
+          assignments: session.assignments,
+        });
+      }
+    }
+  }
+
+  // 開始時刻の早い順にソート
+  return cards.sort((a, b) => a.startTime - b.startTime);
 }
 
 // ローディングステップの型
@@ -239,6 +305,20 @@ export function DashboardClient() {
       }
     }
   }, [courts, addBookingData]);
+
+  // カード表示用の予約データを構築（メモ化）
+  const reservationCards = useMemo(() => buildReservationCards(courts), [courts]);
+
+  // 予約カードからコートを選択してモーダルを開く（カード表示からの予約追加）
+  const handleAddReservationFromCards = () => {
+    // 最初のコートを選択してReservationModalを開く
+    if (courts.length > 0) {
+      setReservationModalData({
+        court: courts[0],
+        timestamp: Math.floor(Date.now() / 1000),
+      });
+    }
+  };
 
   // Fetch facilities on mount
   useEffect(() => {
@@ -485,44 +565,33 @@ export function DashboardClient() {
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                {/* Courts Section */}
+                {/* Reservations Section */}
                 <div className="lg:col-span-3">
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {courts.map((court) => (
-                      <CourtCard
-                        key={court.id}
-                        court={court}
+                    {reservationCards.map((card) => (
+                      <ReservationCard
+                        key={card.cardId}
+                        data={card}
                         shifts={shifts}
-                        onLock={() => lockCourt(court.id)}
-                        onUnlock={
-                          court.currentSession
-                            ? () => unlockSession(court.currentSession!.id)
-                            : undefined
-                        }
-                        onReserve={
-                          court.currentSession
-                            ? (data) => reserveSession(court.currentSession!.id, data)
-                            : undefined
-                        }
-                        onStart={
-                          court.currentSession
-                            ? () => startSession(court.currentSession!.id)
-                            : undefined
-                        }
-                        onComplete={
-                          court.currentSession
-                            ? () => completeSession(court.currentSession!.id)
-                            : undefined
-                        }
-                        onAssignStaff={
-                          court.currentSession
-                            ? (shiftId) => assignStaff(court.currentSession!.id, shiftId)
-                            : undefined
-                        }
+                        onStartSession={() => startSession(card.sessionId)}
+                        onCompleteSession={() => completeSession(card.sessionId)}
+                        onAssignStaff={(shiftId) => assignStaff(card.sessionId, shiftId)}
                         onUnassignStaff={unassignStaff}
-                        onCreateSlot={() => setCreateSlotCourtData({ courtId: court.id, courtName: court.name })}
+                        onTogglePaymentStatus={
+                          card.booking
+                            ? () => handleToggleBookingPaymentStatus(card.booking!.id, card.paymentStatus)
+                            : () => handleTogglePaymentStatus(card.sessionId, card.paymentStatus)
+                        }
+                        onCardClick={() => {
+                          setSessionDetailData({
+                            sessionId: card.sessionId,
+                            courtName: card.courtName,
+                          });
+                        }}
                       />
                     ))}
+                    {/* Add Reservation Button */}
+                    <AddReservationCard onClick={handleAddReservationFromCards} />
                   </div>
                 </div>
 

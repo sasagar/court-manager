@@ -8,7 +8,7 @@ import {
   type CreateCourtBlockInput,
   type Court,
 } from '../lib/api-client';
-import { formatTimeJST, timeToTimestamp, getTodayJST } from '../lib/time-utils';
+import { formatTimeJST, timeToTimestamp, getTodayJST, getNextDay, getPreviousDay } from '../lib/time-utils';
 
 type CourtBlocksManagerProps = {
   facilityId: string;
@@ -28,10 +28,7 @@ export function CourtBlocksManager({ facilityId }: CourtBlocksManagerProps) {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingBlock, setEditingBlock] = useState<CourtBlock | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  });
+  const [selectedDate, setSelectedDate] = useState(() => getTodayJST());
   const [viewMode, setViewMode] = useState<'date' | 'recurring'>('date');
 
   // Form state
@@ -183,9 +180,11 @@ export function CourtBlocksManager({ facilityId }: CourtBlocksManagerProps) {
 
   // 日付を前後に移動
   const changeDate = (days: number) => {
-    const current = new Date(selectedDate);
-    current.setDate(current.getDate() + days);
-    setSelectedDate(current.toISOString().split('T')[0]);
+    if (days > 0) {
+      setSelectedDate(getNextDay(selectedDate));
+    } else if (days < 0) {
+      setSelectedDate(getPreviousDay(selectedDate));
+    }
   };
 
   if (loading) {
@@ -258,7 +257,7 @@ export function CourtBlocksManager({ facilityId }: CourtBlocksManagerProps) {
             </svg>
           </button>
           <button
-            onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+            onClick={() => setSelectedDate(getTodayJST())}
             className="px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg"
           >
             今日
