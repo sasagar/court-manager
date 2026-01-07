@@ -1,7 +1,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { plansApi, planOptionsApi, type Plan, type CreatePlanInput, type PlanOption, type CreatePlanOptionInput } from '../lib/api-client';
+import {
+  plansApi,
+  planOptionsApi,
+  optionGroupsApi,
+  type Plan,
+  type CreatePlanInput,
+  type PlanOption,
+  type CreatePlanOptionInput,
+  type OptionGroup,
+  type CreateOptionGroupInput,
+} from '../lib/api-client';
 import { COLOR_PRESETS } from '../constants/colors';
 
 type PlansManagerProps = {
@@ -19,17 +29,30 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
   // オプション管理用state
   const [showOptionsModal, setShowOptionsModal] = useState(false);
   const [optionsPlan, setOptionsPlan] = useState<Plan | null>(null);
-  const [options, setOptions] = useState<PlanOption[]>([]);
+  const [optionGroups, setOptionGroups] = useState<OptionGroup[]>([]);
+  const [ungroupedOptions, setUngroupedOptions] = useState<PlanOption[]>([]);
   const [optionsLoading, setOptionsLoading] = useState(false);
+
+  // グループフォーム用state
+  const [showGroupForm, setShowGroupForm] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<OptionGroup | null>(null);
+  const [groupFormData, setGroupFormData] = useState<CreateOptionGroupInput>({
+    name: '',
+    selectionType: 'single',
+    maxSelections: null,
+    isRequired: false,
+  });
+
+  // オプションフォーム用state
   const [showOptionForm, setShowOptionForm] = useState(false);
   const [editingOption, setEditingOption] = useState<PlanOption | null>(null);
+  const [targetGroupId, setTargetGroupId] = useState<string | null>(null);
   const [optionFormData, setOptionFormData] = useState<CreatePlanOptionInput>({
     name: '',
     description: '',
     isRequired: false,
     allowMultiple: true,
-    selectionType: 'quantity',
-    optionGroup: '',
+    groupId: null,
   });
 
   // Form state
@@ -175,11 +198,12 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
   };
 
   // オプション管理関数
-  const fetchOptions = async (planId: string) => {
+  const fetchOptionsAndGroups = async (planId: string) => {
     setOptionsLoading(true);
     try {
-      const result = await planOptionsApi.list(facilityId, planId, true);
-      setOptions(result.options);
+      const result = await optionGroupsApi.list(facilityId, planId, true);
+      setOptionGroups(result.groups);
+      setUngroupedOptions(result.ungroupedOptions);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load options');
     } finally {
@@ -190,15 +214,60 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
   const handleOpenOptions = async (plan: Plan) => {
     setOptionsPlan(plan);
     setShowOptionsModal(true);
-    await fetchOptions(plan.id);
+    await fetchOptionsAndGroups(plan.id);
   };
 
   const handleCloseOptions = () => {
     setShowOptionsModal(false);
     setOptionsPlan(null);
-    setOptions([]);
+    setOptionGroups([]);
+    setUngroupedOptions([]);
     setShowOptionForm(false);
     setEditingOption(null);
+    setShowGroupForm(false);
+    setEditingGroup(null);
+  };
+
+  // グループ管理関数
+  const handleGroupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!optionsPlan) return;
+
+    try {
+      if (editingGroup) {
+        await optionGroupsApi.update(facilityId, optionsPlan.id, editingGroup.id, groupFormData);
+      } else {
+        await optionGroupsApi.create(facilityId, optionsPlan.id, groupFormData);
+      }
+      setShowGroupForm(false);
+      setEditingGroup(null);
+      setGroupFormData({ name: '', selectionType: 'single', maxSelections: null, isRequired: false });
+      await fetchOptionsAndGroups(optionsPlan.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save group');
+    }
+  };
+
+  const handleEditGroup = (group: OptionGroup) => {
+    setEditingGroup(group);
+    setGroupFormData({
+      name: group.name,
+      selectionType: group.selectionType,
+      maxSelections: group.maxSelections,
+      isRequired: group.isRequired,
+    });
+    setShowGroupForm(true);
+  };
+
+  const handleDeleteGroup = async (groupId: string) => {
+    if (!optionsPlan || !confirm('このグループを削除しますか？\nグループ内のオプションは「その他」に移動されます。')) return;
+
+    try {
+      await optionGroupsApi.delete(facilityId, optionsPlan.id, groupId);
+      await fetchOptionsAndGroups(optionsPlan.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete group');
+    }
   };
 
   const handleOptionSubmit = async (e: React.FormEvent) => {
@@ -206,29 +275,38 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
     if (!optionsPlan) return;
 
     try {
+      const dataToSubmit = { ...optionFormData, groupId: targetGroupId };
       if (editingOption) {
-        await planOptionsApi.update(facilityId, optionsPlan.id, editingOption.id, optionFormData);
+        await planOptionsApi.update(facilityId, optionsPlan.id, editingOption.id, dataToSubmit);
       } else {
-        await planOptionsApi.create(facilityId, optionsPlan.id, optionFormData);
+        await planOptionsApi.create(facilityId, optionsPlan.id, dataToSubmit);
       }
       setShowOptionForm(false);
       setEditingOption(null);
-      setOptionFormData({ name: '', description: '', isRequired: false, allowMultiple: true, selectionType: 'quantity', optionGroup: '' });
-      await fetchOptions(optionsPlan.id);
+      setTargetGroupId(null);
+      setOptionFormData({ name: '', description: '', isRequired: false, allowMultiple: true, groupId: null });
+      await fetchOptionsAndGroups(optionsPlan.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save option');
     }
   };
 
+  const handleAddOptionToGroup = (groupId: string | null) => {
+    setTargetGroupId(groupId);
+    setEditingOption(null);
+    setOptionFormData({ name: '', description: '', isRequired: false, allowMultiple: true, groupId: groupId });
+    setShowOptionForm(true);
+  };
+
   const handleEditOption = (option: PlanOption) => {
     setEditingOption(option);
+    setTargetGroupId(option.groupId || null);
     setOptionFormData({
       name: option.name,
       description: option.description || '',
       isRequired: option.isRequired,
       allowMultiple: option.allowMultiple,
-      selectionType: option.selectionType,
-      optionGroup: option.optionGroup || '',
+      groupId: option.groupId || null,
     });
     setShowOptionForm(true);
   };
@@ -238,7 +316,7 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
 
     try {
       await planOptionsApi.delete(facilityId, optionsPlan.id, optionId);
-      await fetchOptions(optionsPlan.id);
+      await fetchOptionsAndGroups(optionsPlan.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete option');
     }
@@ -249,7 +327,7 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
 
     try {
       await planOptionsApi.update(facilityId, optionsPlan.id, option.id, { isActive: !option.isActive });
-      await fetchOptions(optionsPlan.id);
+      await fetchOptionsAndGroups(optionsPlan.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update option');
     }
@@ -589,7 +667,7 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
       {/* Options Modal */}
       {showOptionsModal && optionsPlan && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">
                 {optionsPlan.name} のオプション管理
@@ -605,14 +683,130 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
             </div>
 
             <p className="text-sm text-gray-600 mb-4">
-              予約時に選択できるオプション（ゲーム選択など）を設定できます
+              グループを作成し、その中にオプションを追加できます。グループごとに単一選択/複数選択を設定できます。
             </p>
 
+            {/* Group Form */}
+            {showGroupForm && (
+              <form onSubmit={handleGroupSubmit} className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <h4 className="font-medium mb-3 text-blue-800">
+                  {editingGroup ? 'グループを編集' : '新規グループ'}
+                </h4>
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    グループ名 *
+                  </label>
+                  <input
+                    type="text"
+                    value={groupFormData.name}
+                    onChange={(e) => setGroupFormData({ ...groupFormData, name: e.target.value })}
+                    placeholder="例: ゲーム種類, 装備"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    選択タイプ
+                  </label>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="selectionType"
+                        value="single"
+                        checked={groupFormData.selectionType === 'single'}
+                        onChange={() => setGroupFormData({ ...groupFormData, selectionType: 'single', maxSelections: null })}
+                        className="text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-700">単一選択（1つだけ選択）</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="selectionType"
+                        value="multiple"
+                        checked={groupFormData.selectionType === 'multiple'}
+                        onChange={() => setGroupFormData({ ...groupFormData, selectionType: 'multiple' })}
+                        className="text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-700">複数選択</span>
+                    </label>
+                  </div>
+                </div>
+
+                {groupFormData.selectionType === 'multiple' && (
+                  <div className="mb-3 ml-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      選択上限数
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={groupFormData.maxSelections || ''}
+                        onChange={(e) => setGroupFormData({
+                          ...groupFormData,
+                          maxSelections: e.target.value ? Number(e.target.value) : null
+                        })}
+                        min={1}
+                        placeholder="無制限"
+                        className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-500">（空欄で無制限）</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mb-3">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={groupFormData.isRequired || false}
+                      onChange={(e) => setGroupFormData({ ...groupFormData, isRequired: e.target.checked })}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">必須（1つ以上の選択が必要）</span>
+                  </label>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    {editingGroup ? '更新' : '追加'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowGroupForm(false);
+                      setEditingGroup(null);
+                      setGroupFormData({ name: '', selectionType: 'single', maxSelections: null, isRequired: false });
+                    }}
+                    className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </form>
+            )}
+
             {/* Option Form */}
-            {showOptionForm ? (
-              <form onSubmit={handleOptionSubmit} className="mb-4 p-4 bg-gray-50 rounded-lg">
-                <h4 className="font-medium mb-3">
+            {showOptionForm && (
+              <form onSubmit={handleOptionSubmit} className="mb-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+                <h4 className="font-medium mb-3 text-purple-800">
                   {editingOption ? 'オプションを編集' : '新規オプション'}
+                  {targetGroupId && (
+                    <span className="ml-2 text-sm font-normal text-purple-600">
+                      （{optionGroups.find(g => g.id === targetGroupId)?.name || 'その他'}）
+                    </span>
+                  )}
+                  {!targetGroupId && (
+                    <span className="ml-2 text-sm font-normal text-gray-500">
+                      （その他）
+                    </span>
+                  )}
                 </h4>
                 <div className="mb-3">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -622,7 +816,7 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
                     type="text"
                     value={optionFormData.name}
                     onChange={(e) => setOptionFormData({ ...optionFormData, name: e.target.value })}
-                    placeholder="例: HADO, サバゲー, 卓球"
+                    placeholder="例: HADO, サバゲー, ヘッドマウント"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                     required
                   />
@@ -640,71 +834,16 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
                   />
                 </div>
 
-                {/* 選択タイプ */}
-                <div className="mb-3">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    選択タイプ
-                  </label>
-                  <select
-                    value={optionFormData.selectionType || 'quantity'}
-                    onChange={(e) => setOptionFormData({
-                      ...optionFormData,
-                      selectionType: e.target.value as 'quantity' | 'checkbox' | 'radio'
-                    })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  >
-                    <option value="quantity">数量入力（人数など）</option>
-                    <option value="checkbox">チェックボックス（複数選択可）</option>
-                    <option value="radio">ラジオボタン（グループ内で1つ選択）</option>
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500">
-                    {optionFormData.selectionType === 'quantity' && '数値を入力して選択（例: 初心者3名）'}
-                    {optionFormData.selectionType === 'checkbox' && '複数のオプションを同時に選択可能'}
-                    {optionFormData.selectionType === 'radio' && '同じグループ内で1つだけ選択（グループ名を設定）'}
-                  </p>
-                </div>
-
-                {/* ラジオボタンの場合のグループ名 */}
-                {optionFormData.selectionType === 'radio' && (
-                  <div className="mb-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      グループ名
-                    </label>
-                    <input
-                      type="text"
-                      value={optionFormData.optionGroup || ''}
-                      onChange={(e) => setOptionFormData({ ...optionFormData, optionGroup: e.target.value })}
-                      placeholder="例: ゲーム種類, プレイモード"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                    <p className="mt-1 text-xs text-gray-500">
-                      同じグループ名のオプションは択一選択になります
-                    </p>
-                  </div>
-                )}
-
-                {/* 設定チェックボックス */}
                 <div className="mb-3 space-y-2">
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={optionFormData.isRequired || false}
-                      onChange={(e) => setOptionFormData({ ...optionFormData, isRequired: e.target.checked })}
+                      checked={optionFormData.allowMultiple !== false}
+                      onChange={(e) => setOptionFormData({ ...optionFormData, allowMultiple: e.target.checked })}
                       className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                     />
-                    <span className="text-sm text-gray-700">必須（予約時に必ず選択）</span>
+                    <span className="text-sm text-gray-700">数量入力を許可（複数選択可能）</span>
                   </label>
-                  {optionFormData.selectionType === 'quantity' && (
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={optionFormData.allowMultiple !== false}
-                        onChange={(e) => setOptionFormData({ ...optionFormData, allowMultiple: e.target.checked })}
-                        className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                      />
-                      <span className="text-sm text-gray-700">複数人数を入力可能</span>
-                    </label>
-                  )}
                 </div>
 
                 <div className="flex gap-2">
@@ -719,7 +858,8 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
                     onClick={() => {
                       setShowOptionForm(false);
                       setEditingOption(null);
-                      setOptionFormData({ name: '', description: '', isRequired: false, allowMultiple: true, selectionType: 'quantity', optionGroup: '' });
+                      setTargetGroupId(null);
+                      setOptionFormData({ name: '', description: '', isRequired: false, allowMultiple: true, groupId: null });
                     }}
                     className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
                   >
@@ -727,85 +867,189 @@ export function PlansManager({ facilityId }: PlansManagerProps) {
                   </button>
                 </div>
               </form>
-            ) : (
+            )}
+
+            {/* Add Group Button */}
+            {!showGroupForm && !showOptionForm && (
               <button
-                onClick={() => setShowOptionForm(true)}
-                className="mb-4 px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700"
+                onClick={() => setShowGroupForm(true)}
+                className="mb-4 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700"
               >
-                + オプションを追加
+                + グループを追加
               </button>
             )}
 
-            {/* Options List */}
+            {/* Groups and Options List */}
             {optionsLoading ? (
               <div className="text-gray-500">読み込み中...</div>
-            ) : options.length === 0 ? (
-              <div className="text-gray-500 text-center py-4">
-                オプションがまだ登録されていません
-              </div>
             ) : (
-              <div className="space-y-2">
-                {options.map((option) => (
-                  <div
-                    key={option.id}
-                    className={`flex items-center justify-between p-3 border rounded-lg ${
-                      option.isActive ? 'border-gray-200' : 'border-gray-200 bg-gray-50 opacity-60'
-                    }`}
-                  >
-                    <div className="flex-1">
+              <div className="space-y-4">
+                {/* Option Groups */}
+                {optionGroups.map((group) => (
+                  <div key={group.id} className="border rounded-lg overflow-hidden">
+                    <div className="flex items-center justify-between p-3 bg-gray-50 border-b">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium">{option.name}</span>
-                        <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded-full">
-                          {option.selectionType === 'quantity' && '数量'}
-                          {option.selectionType === 'checkbox' && 'チェック'}
-                          {option.selectionType === 'radio' && 'ラジオ'}
+                        <span className="font-medium text-gray-800">{group.name}</span>
+                        <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full">
+                          {group.selectionType === 'single' ? '単一選択' : '複数選択'}
+                          {group.selectionType === 'multiple' && group.maxSelections && ` (最大${group.maxSelections})`}
                         </span>
-                        {option.isRequired && (
+                        {group.isRequired && (
                           <span className="px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full">
                             必須
                           </span>
                         )}
-                        {option.optionGroup && (
-                          <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full">
-                            {option.optionGroup}
-                          </span>
-                        )}
-                        {!option.isActive && (
+                        {!group.isActive && (
                           <span className="px-2 py-0.5 text-xs bg-gray-200 text-gray-600 rounded-full">
                             無効
                           </span>
                         )}
                       </div>
-                      {option.description && (
-                        <p className="text-sm text-gray-500 mt-1">{option.description}</p>
-                      )}
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleEditGroup(group)}
+                          className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
+                        >
+                          編集
+                        </button>
+                        <button
+                          onClick={() => handleDeleteGroup(group.id)}
+                          className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                        >
+                          削除
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
+
+                    <div className="p-3">
+                      {group.options.length === 0 ? (
+                        <p className="text-sm text-gray-400 text-center py-2">オプションなし</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {group.options.map((option) => (
+                            <div
+                              key={option.id}
+                              className={`flex items-center justify-between p-2 rounded ${
+                                option.isActive ? 'bg-white border' : 'bg-gray-50 border opacity-60'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm">{option.name}</span>
+                                {option.allowMultiple && (
+                                  <span className="px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+                                    数量可
+                                  </span>
+                                )}
+                                {!option.isActive && (
+                                  <span className="px-1.5 py-0.5 text-xs bg-gray-200 text-gray-500 rounded">
+                                    無効
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handleToggleOptionActive(option)}
+                                  className={`px-2 py-0.5 text-xs rounded ${
+                                    option.isActive
+                                      ? 'text-yellow-600 hover:bg-yellow-50'
+                                      : 'text-green-600 hover:bg-green-50'
+                                  }`}
+                                >
+                                  {option.isActive ? '無効化' : '有効化'}
+                                </button>
+                                <button
+                                  onClick={() => handleEditOption(option)}
+                                  className="px-2 py-0.5 text-xs text-blue-600 hover:bg-blue-50 rounded"
+                                >
+                                  編集
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteOption(option.id)}
+                                  className="px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 rounded"
+                                >
+                                  削除
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <button
-                        onClick={() => handleToggleOptionActive(option)}
-                        className={`px-2 py-1 text-xs rounded ${
-                          option.isActive
-                            ? 'text-yellow-600 hover:bg-yellow-50'
-                            : 'text-green-600 hover:bg-green-50'
-                        }`}
+                        onClick={() => handleAddOptionToGroup(group.id)}
+                        className="mt-2 px-3 py-1 text-xs text-purple-600 border border-purple-300 rounded hover:bg-purple-50"
                       >
-                        {option.isActive ? '無効化' : '有効化'}
-                      </button>
-                      <button
-                        onClick={() => handleEditOption(option)}
-                        className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
-                      >
-                        編集
-                      </button>
-                      <button
-                        onClick={() => handleDeleteOption(option.id)}
-                        className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
-                      >
-                        削除
+                        + オプションを追加
                       </button>
                     </div>
                   </div>
                 ))}
+
+                {/* Ungrouped Options (その他) */}
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between p-3 bg-gray-100 border-b">
+                    <span className="font-medium text-gray-700">その他</span>
+                  </div>
+                  <div className="p-3">
+                    {ungroupedOptions.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-2">オプションなし</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {ungroupedOptions.map((option) => (
+                          <div
+                            key={option.id}
+                            className={`flex items-center justify-between p-2 rounded ${
+                              option.isActive ? 'bg-white border' : 'bg-gray-50 border opacity-60'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm">{option.name}</span>
+                              {option.allowMultiple && (
+                                <span className="px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+                                  数量可
+                                </span>
+                              )}
+                              {!option.isActive && (
+                                <span className="px-1.5 py-0.5 text-xs bg-gray-200 text-gray-500 rounded">
+                                  無効
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleToggleOptionActive(option)}
+                                className={`px-2 py-0.5 text-xs rounded ${
+                                  option.isActive
+                                    ? 'text-yellow-600 hover:bg-yellow-50'
+                                    : 'text-green-600 hover:bg-green-50'
+                                }`}
+                              >
+                                {option.isActive ? '無効化' : '有効化'}
+                              </button>
+                              <button
+                                onClick={() => handleEditOption(option)}
+                                className="px-2 py-0.5 text-xs text-blue-600 hover:bg-blue-50 rounded"
+                              >
+                                編集
+                              </button>
+                              <button
+                                onClick={() => handleDeleteOption(option.id)}
+                                className="px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 rounded"
+                              >
+                                削除
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => handleAddOptionToGroup(null)}
+                      className="mt-2 px-3 py-1 text-xs text-purple-600 border border-purple-300 rounded hover:bg-purple-50"
+                    >
+                      + オプションを追加
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 

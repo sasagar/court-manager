@@ -408,6 +408,38 @@ export const sessionOptionsApi = {
     ),
 };
 
+/**
+ * オプショングループAPI
+ *
+ * プランに紐づくオプショングループを管理する
+ */
+export const optionGroupsApi = {
+  list: (facilityId: string, planId: string, includeInactive = false) =>
+    request<{ groups: OptionGroup[]; ungroupedOptions: PlanOption[] }>(
+      `/api/facilities/${facilityId}/plans/${planId}/option-groups?includeInactive=${includeInactive}`
+    ),
+  create: (facilityId: string, planId: string, data: CreateOptionGroupInput) =>
+    request<{ id: string }>(`/api/facilities/${facilityId}/plans/${planId}/option-groups`, {
+      method: 'POST',
+      body: data,
+    }),
+  update: (facilityId: string, planId: string, groupId: string, data: UpdateOptionGroupInput) =>
+    request<{ success: boolean }>(
+      `/api/facilities/${facilityId}/plans/${planId}/option-groups/${groupId}`,
+      { method: 'PATCH', body: data }
+    ),
+  delete: (facilityId: string, planId: string, groupId: string) =>
+    request<{ success: boolean }>(
+      `/api/facilities/${facilityId}/plans/${planId}/option-groups/${groupId}`,
+      { method: 'DELETE' }
+    ),
+  reorder: (facilityId: string, planId: string, groupIds: string[]) =>
+    request<{ success: boolean }>(
+      `/api/facilities/${facilityId}/plans/${planId}/option-groups/reorder`,
+      { method: 'PUT', body: { groupIds } }
+    ),
+};
+
 // Types
 export type Facility = {
   id: string;
@@ -651,6 +683,7 @@ export type Plan = {
 export type PlanOption = {
   id: string;
   planId: string;
+  groupId?: string | null;
   name: string;
   description?: string;
   price: number;
@@ -658,9 +691,23 @@ export type PlanOption = {
   isActive: boolean;
   isRequired: boolean;
   allowMultiple: boolean;
-  selectionType: 'quantity' | 'checkbox' | 'radio';
-  optionGroup?: string;
   createdAt: string;
+  // グループ情報（JOINで取得される場合）
+  groupName?: string;
+  selectionType?: 'single' | 'multiple';
+};
+
+export type OptionGroup = {
+  id: string;
+  planId: string;
+  name: string;
+  selectionType: 'single' | 'multiple';
+  maxSelections: number | null;
+  isRequired: boolean;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  options: PlanOption[];
 };
 
 export type SessionOption = {
@@ -716,11 +763,20 @@ export type CreatePlanOptionInput = {
   sortOrder?: number;
   isRequired?: boolean;
   allowMultiple?: boolean;
-  selectionType?: 'quantity' | 'checkbox' | 'radio';
-  optionGroup?: string;
+  groupId?: string | null;
 };
 
 export type UpdatePlanOptionInput = Partial<CreatePlanOptionInput> & { isActive?: boolean };
+
+export type CreateOptionGroupInput = {
+  name: string;
+  selectionType?: 'single' | 'multiple';
+  maxSelections?: number | null;
+  isRequired?: boolean;
+  sortOrder?: number;
+};
+
+export type UpdateOptionGroupInput = Partial<CreateOptionGroupInput> & { isActive?: boolean };
 
 export type Booking = {
   id: number;

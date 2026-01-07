@@ -8,8 +8,9 @@ import type {
   Booking,
   CreateBookingInput,
   PlanOption,
+  OptionGroup,
 } from '../lib/api-client';
-import { plansApi, bookingsApi, planOptionsApi, sessionOptionsApi } from '../lib/api-client';
+import { plansApi, bookingsApi, optionGroupsApi, sessionOptionsApi } from '../lib/api-client';
 import { COLOR_PRESETS } from '../constants/colors';
 
 type ReservationModalProps = {
@@ -53,7 +54,8 @@ export function ReservationModal({
   const [bookingPaymentStatus, setBookingPaymentStatus] = useState<'paid' | 'unpaid'>('unpaid');
 
   // オプション用の状態
-  const [planOptions, setPlanOptions] = useState<PlanOption[]>([]);
+  const [optionGroups, setOptionGroups] = useState<OptionGroup[]>([]);
+  const [ungroupedOptions, setUngroupedOptions] = useState<PlanOption[]>([]);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, number>>({}); // optionId -> quantity
 
   // 初期時間を設定
@@ -103,23 +105,27 @@ export function ReservationModal({
   useEffect(() => {
     const fetchPlanOptions = async () => {
       if (!selectedPlanId) {
-        setPlanOptions([]);
+        setOptionGroups([]);
+        setUngroupedOptions([]);
         setSelectedOptions({});
         return;
       }
       const plan = plans.find((p) => p.id === selectedPlanId);
       if (!plan || plan.isSlotBased) {
-        setPlanOptions([]);
+        setOptionGroups([]);
+        setUngroupedOptions([]);
         setSelectedOptions({});
         return;
       }
       try {
-        const result = await planOptionsApi.list(facilityId, selectedPlanId);
-        setPlanOptions(result.options);
+        const result = await optionGroupsApi.list(facilityId, selectedPlanId);
+        setOptionGroups(result.groups);
+        setUngroupedOptions(result.ungroupedOptions);
         setSelectedOptions({});
       } catch (err) {
         console.error('Failed to fetch plan options:', err);
-        setPlanOptions([]);
+        setOptionGroups([]);
+        setUngroupedOptions([]);
       }
     };
     fetchPlanOptions();
@@ -161,20 +167,25 @@ export function ReservationModal({
     return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
   };
 
-  // オプションの選択切り替え
-  const handleOptionToggle = (optionId: string) => {
-    const option = planOptions.find((o) => o.id === optionId);
-    if (!option) return;
+  // 全オプションをフラットにまとめる（選択サマリ表示用）
+  const allOptions = [
+    ...optionGroups.flatMap((g) => g.options),
+    ...ungroupedOptions,
+  ];
 
+  // グループの選択数を取得
+  const getGroupSelectedCount = (group: OptionGroup): number => {
+    return group.options.filter((o) => selectedOptions[o.id]).length;
+  };
+
+  // オプションの選択切り替え
+  const handleOptionToggle = (optionId: string, group?: OptionGroup) => {
     setSelectedOptions((prev) => {
-      // ラジオボタンの場合、同じグループの他のオプションを解除
-      if (option.selectionType === 'radio' && option.optionGroup) {
-        const sameGroupOptions = planOptions.filter(
-          (o) => o.selectionType === 'radio' && o.optionGroup === option.optionGroup
-        );
+      // 単一選択グループの場合、同じグループの他のオプションを解除
+      if (group && group.selectionType === 'single') {
         const newState = { ...prev };
         // 同じグループの他のオプションを解除
-        for (const groupOption of sameGroupOptions) {
+        for (const groupOption of group.options) {
           if (groupOption.id !== optionId) {
             delete newState[groupOption.id];
           }
@@ -186,6 +197,21 @@ export function ReservationModal({
           newState[optionId] = 1;
         }
         return newState;
+      }
+
+      // 複数選択グループで上限がある場合
+      if (group && group.selectionType === 'multiple' && group.maxSelections) {
+        const currentCount = getGroupSelectedCount(group);
+        // 既に選択されている場合は解除OK
+        if (prev[optionId]) {
+          const { [optionId]: _, ...rest } = prev;
+          return rest;
+        }
+        // 上限に達している場合は追加不可
+        if (currentCount >= group.maxSelections) {
+          return prev;
+        }
+        return { ...prev, [optionId]: 1 };
       }
 
       // チェックボックス・数量の場合は従来通り
@@ -587,120 +613,201 @@ export function ReservationModal({
           )}
 
           {/* オプション選択（非枠プランでオプションがある場合のみ） */}
-          {!isAddingToExistingSlot && selectedPlan && !selectedPlan.isSlotBased && planOptions.length > 0 && (
+          {!isAddingToExistingSlot && selectedPlan && !selectedPlan.isSlotBased && (optionGroups.length > 0 || ungroupedOptions.length > 0) && (
             <div className="mb-4 p-2 bg-purple-50 rounded-lg">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 オプション
               </label>
-              <div className="space-y-1">
-                {/* ラジオボタングループごとに表示 */}
-                {(() => {
-                  const radioGroups = new Map<string, typeof planOptions>();
-                  const nonRadioOptions: typeof planOptions = [];
-
-                  for (const option of planOptions) {
-                    if (option.selectionType === 'radio' && option.optionGroup) {
-                      const group = radioGroups.get(option.optionGroup) || [];
-                      group.push(option);
-                      radioGroups.set(option.optionGroup, group);
-                    } else {
-                      nonRadioOptions.push(option);
-                    }
-                  }
+              <div className="space-y-3">
+                {/* グループごとにセクション表示 */}
+                {optionGroups.map((group) => {
+                  const selectedCount = getGroupSelectedCount(group);
+                  const isAtLimit = !!(group.maxSelections && selectedCount >= group.maxSelections);
 
                   return (
-                    <>
-                      {/* ラジオボタングループ */}
-                      {Array.from(radioGroups.entries()).map(([groupName, groupOptions]) => (
-                        <div key={groupName} className="border border-gray-200 rounded p-1.5 bg-white">
-                          <div className="text-xs font-medium text-gray-500 mb-1">{groupName}</div>
-                          <div className="flex flex-wrap gap-1">
-                            {groupOptions.map((option) => (
-                              <label
-                                key={option.id}
-                                htmlFor={`option-${option.id}`}
-                                title={option.description || ''}
-                                className={`inline-flex items-center gap-1 px-2 py-1 rounded cursor-pointer text-sm ${
-                                  selectedOptions[option.id]
-                                    ? 'bg-purple-200 text-purple-800'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                }`}
-                              >
-                                <input
-                                  type="radio"
-                                  id={`option-${option.id}`}
-                                  name={`radio-group-${groupName}`}
-                                  checked={!!selectedOptions[option.id]}
-                                  onChange={() => handleOptionToggle(option.id)}
-                                  className="sr-only"
-                                />
-                                {option.name}
-                                {option.description && (
-                                  <span className="text-gray-400 text-xs" title={option.description}>ⓘ</span>
-                                )}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                    <div key={group.id} className="border border-gray-200 rounded p-2 bg-white">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-medium text-gray-600">{group.name}</span>
+                        {group.isRequired && (
+                          <span className="text-xs text-red-500">*必須</span>
+                        )}
+                        {group.selectionType === 'single' && (
+                          <span className="text-xs text-gray-400">（1つ選択）</span>
+                        )}
+                        {group.selectionType === 'multiple' && group.maxSelections && (
+                          <span className="text-xs text-gray-400">
+                            （最大{group.maxSelections}つ・選択中: {selectedCount}）
+                          </span>
+                        )}
+                        {group.selectionType === 'multiple' && !group.maxSelections && (
+                          <span className="text-xs text-gray-400">（複数選択可）</span>
+                        )}
+                      </div>
 
-                      {/* チェックボックス・数量オプション */}
-                      {nonRadioOptions.length > 0 && (
+                      {group.selectionType === 'single' ? (
+                        // 単一選択: ラジオボタン形式
                         <div className="flex flex-wrap gap-1">
-                          {nonRadioOptions.map((option) => (
-                            <div
+                          {group.options.map((option) => (
+                            <label
                               key={option.id}
-                              className={`inline-flex items-center gap-1 px-2 py-1 rounded border ${
+                              htmlFor={`option-${option.id}`}
+                              title={option.description || ''}
+                              className={`inline-flex items-center gap-1 px-2 py-1 rounded cursor-pointer text-sm ${
                                 selectedOptions[option.id]
-                                  ? 'border-purple-400 bg-purple-100'
-                                  : 'border-gray-200 bg-white'
+                                  ? 'bg-purple-200 text-purple-800'
+                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                               }`}
                             >
-                              <label
-                                htmlFor={`option-${option.id}`}
-                                title={option.description || ''}
-                                className="inline-flex items-center gap-1 cursor-pointer text-sm"
-                              >
-                                <input
-                                  type="checkbox"
-                                  id={`option-${option.id}`}
-                                  checked={!!selectedOptions[option.id]}
-                                  onChange={() => handleOptionToggle(option.id)}
-                                  className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
-                                />
-                                <span className={selectedOptions[option.id] ? 'text-purple-800' : 'text-gray-700'}>
-                                  {option.name}
-                                </span>
-                                {option.description && (
-                                  <span className="text-gray-400 text-xs" title={option.description}>ⓘ</span>
-                                )}
-                              </label>
-                              {/* 数量入力はquantityタイプの場合のみ表示 */}
-                              {selectedOptions[option.id] && option.selectionType === 'quantity' && (
-                                <input
-                                  type="number"
-                                  value={selectedOptions[option.id]}
-                                  onChange={(e) =>
-                                    handleOptionQuantityChange(option.id, Number(e.target.value))
-                                  }
-                                  min={1}
-                                  className="w-12 px-1 py-0.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
-                                />
+                              <input
+                                type="radio"
+                                id={`option-${option.id}`}
+                                name={`radio-group-${group.id}`}
+                                checked={!!selectedOptions[option.id]}
+                                onChange={() => handleOptionToggle(option.id, group)}
+                                className="sr-only"
+                              />
+                              {option.name}
+                              {option.price > 0 && (
+                                <span className="text-xs text-gray-500">+{option.price.toLocaleString()}円</span>
                               )}
-                            </div>
+                              {option.description && (
+                                <span className="text-gray-400 text-xs" title={option.description}>ⓘ</span>
+                              )}
+                            </label>
                           ))}
                         </div>
+                      ) : (
+                        // 複数選択: チェックボックス形式
+                        <div className="flex flex-wrap gap-1">
+                          {group.options.map((option) => {
+                            const isSelected = !!selectedOptions[option.id];
+                            const isDisabled = !isSelected && isAtLimit;
+
+                            return (
+                              <div
+                                key={option.id}
+                                className={`inline-flex items-center gap-1 px-2 py-1 rounded border ${
+                                  isSelected
+                                    ? 'border-purple-400 bg-purple-100'
+                                    : isDisabled
+                                      ? 'border-gray-200 bg-gray-50 opacity-50'
+                                      : 'border-gray-200 bg-white'
+                                }`}
+                              >
+                                <label
+                                  htmlFor={`option-${option.id}`}
+                                  title={option.description || ''}
+                                  className={`inline-flex items-center gap-1 text-sm ${
+                                    isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    id={`option-${option.id}`}
+                                    checked={isSelected}
+                                    onChange={() => handleOptionToggle(option.id, group)}
+                                    disabled={isDisabled}
+                                    className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
+                                  />
+                                  <span className={isSelected ? 'text-purple-800' : 'text-gray-700'}>
+                                    {option.name}
+                                  </span>
+                                  {option.price > 0 && (
+                                    <span className="text-xs text-gray-500">+{option.price.toLocaleString()}円</span>
+                                  )}
+                                  {option.description && (
+                                    <span className="text-gray-400 text-xs" title={option.description}>ⓘ</span>
+                                  )}
+                                </label>
+                                {/* 数量入力（allowMultiple=trueの場合） */}
+                                {isSelected && option.allowMultiple && (
+                                  <input
+                                    type="number"
+                                    value={selectedOptions[option.id]}
+                                    onChange={(e) =>
+                                      handleOptionQuantityChange(option.id, Number(e.target.value))
+                                    }
+                                    min={1}
+                                    className="w-12 px-1 py-0.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
-                    </>
+
+                      {isAtLimit && (
+                        <div className="mt-1 text-xs text-orange-600">
+                          選択上限に達しました
+                        </div>
+                      )}
+                    </div>
                   );
-                })()}
+                })}
+
+                {/* グループに属さないオプション（「その他」セクション） */}
+                {ungroupedOptions.length > 0 && (
+                  <div className="border border-gray-200 rounded p-2 bg-white">
+                    <div className="text-xs font-medium text-gray-600 mb-2">その他</div>
+                    <div className="flex flex-wrap gap-1">
+                      {ungroupedOptions.map((option) => (
+                        <div
+                          key={option.id}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded border ${
+                            selectedOptions[option.id]
+                              ? 'border-purple-400 bg-purple-100'
+                              : 'border-gray-200 bg-white'
+                          }`}
+                        >
+                          <label
+                            htmlFor={`option-${option.id}`}
+                            title={option.description || ''}
+                            className="inline-flex items-center gap-1 cursor-pointer text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              id={`option-${option.id}`}
+                              checked={!!selectedOptions[option.id]}
+                              onChange={() => handleOptionToggle(option.id)}
+                              className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
+                            />
+                            <span className={selectedOptions[option.id] ? 'text-purple-800' : 'text-gray-700'}>
+                              {option.name}
+                            </span>
+                            {option.price > 0 && (
+                              <span className="text-xs text-gray-500">+{option.price.toLocaleString()}円</span>
+                            )}
+                            {option.description && (
+                              <span className="text-gray-400 text-xs" title={option.description}>ⓘ</span>
+                            )}
+                          </label>
+                          {/* 数量入力（allowMultiple=trueの場合） */}
+                          {selectedOptions[option.id] && option.allowMultiple && (
+                            <input
+                              type="number"
+                              value={selectedOptions[option.id]}
+                              onChange={(e) =>
+                                handleOptionQuantityChange(option.id, Number(e.target.value))
+                              }
+                              min={1}
+                              className="w-12 px-1 py-0.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* 選択サマリ */}
               {Object.keys(selectedOptions).length > 0 && (
-                <div className="mt-1 pt-1 border-t border-purple-200 text-xs text-gray-600">
+                <div className="mt-2 pt-2 border-t border-purple-200 text-xs text-gray-600">
                   選択: {Object.entries(selectedOptions).map(([optionId, qty]) => {
-                    const opt = planOptions.find((o) => o.id === optionId);
+                    const opt = allOptions.find((o) => o.id === optionId);
                     if (!opt) return '';
-                    return opt.selectionType === 'quantity' ? `${opt.name}(${qty}人)` : opt.name;
+                    return opt.allowMultiple && qty > 1 ? `${opt.name}(${qty})` : opt.name;
                   }).filter(Boolean).join(', ')}
                 </div>
               )}

@@ -29,33 +29,36 @@ app.get(
 
     let query = `
       SELECT
-        id,
-        plan_id,
-        name,
-        description,
-        price,
-        sort_order,
-        is_active,
-        is_required,
-        allow_multiple,
-        selection_type,
-        option_group,
-        created_at
-      FROM plan_options
-      WHERE plan_id = ?
+        po.id,
+        po.plan_id,
+        po.group_id,
+        po.name,
+        po.description,
+        po.price,
+        po.sort_order,
+        po.is_active,
+        po.is_required,
+        po.allow_multiple,
+        po.created_at,
+        og.name as group_name,
+        og.selection_type as group_selection_type
+      FROM plan_options po
+      LEFT JOIN option_groups og ON po.group_id = og.id
+      WHERE po.plan_id = ?
     `;
 
     if (!includeInactive) {
-      query += ' AND is_active = 1';
+      query += ' AND po.is_active = 1';
     }
 
-    query += ' ORDER BY sort_order, name';
+    query += ' ORDER BY po.sort_order, po.name';
 
     const result = await c.env.DB.prepare(query).bind(planId).all();
 
     const options = result.results.map((opt: Record<string, unknown>) => ({
       id: opt.id,
       planId: opt.plan_id,
+      groupId: opt.group_id,
       name: opt.name,
       description: opt.description,
       price: opt.price,
@@ -63,9 +66,10 @@ app.get(
       isActive: opt.is_active === 1,
       isRequired: opt.is_required === 1,
       allowMultiple: opt.allow_multiple === 1,
-      selectionType: opt.selection_type || 'quantity',
-      optionGroup: opt.option_group,
       createdAt: opt.created_at,
+      // グループ情報（後方互換性のため残す）
+      groupName: opt.group_name,
+      selectionType: opt.group_selection_type || 'checkbox',
     }));
 
     return c.json({ options });
@@ -87,8 +91,7 @@ app.post(
       sortOrder?: number;
       isRequired?: boolean;
       allowMultiple?: boolean;
-      selectionType?: 'quantity' | 'checkbox' | 'radio';
-      optionGroup?: string;
+      groupId?: string | null;
     }>();
 
     if (!body.name) {
@@ -106,23 +109,35 @@ app.post(
       return c.json({ error: 'Plan not found' }, 404);
     }
 
+    // グループが指定されている場合、グループの存在確認
+    if (body.groupId) {
+      const group = await c.env.DB.prepare(`
+        SELECT id FROM option_groups WHERE id = ? AND plan_id = ?
+      `)
+        .bind(body.groupId, planId)
+        .first();
+
+      if (!group) {
+        return c.json({ error: 'Option group not found' }, 404);
+      }
+    }
+
     const id = crypto.randomUUID();
 
     await c.env.DB.prepare(`
-      INSERT INTO plan_options (id, plan_id, name, description, price, sort_order, is_required, allow_multiple, selection_type, option_group)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO plan_options (id, plan_id, group_id, name, description, price, sort_order, is_required, allow_multiple)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         id,
         planId,
+        body.groupId || null,
         body.name,
         body.description || null,
         body.price || 0,
         body.sortOrder || 0,
         body.isRequired ? 1 : 0,
-        body.allowMultiple !== false ? 1 : 0,
-        body.selectionType || 'quantity',
-        body.optionGroup || null
+        body.allowMultiple !== false ? 1 : 0
       )
       .run();
 
@@ -146,8 +161,7 @@ app.patch(
       isActive?: boolean;
       isRequired?: boolean;
       allowMultiple?: boolean;
-      selectionType?: 'quantity' | 'checkbox' | 'radio';
-      optionGroup?: string | null;
+      groupId?: string | null;
     }>();
 
     // オプションの存在確認
@@ -159,6 +173,19 @@ app.patch(
 
     if (!exists) {
       return c.json({ error: 'Option not found' }, 404);
+    }
+
+    // グループが指定されている場合、グループの存在確認
+    if (body.groupId) {
+      const group = await c.env.DB.prepare(`
+        SELECT id FROM option_groups WHERE id = ? AND plan_id = ?
+      `)
+        .bind(body.groupId, planId)
+        .first();
+
+      if (!group) {
+        return c.json({ error: 'Option group not found' }, 404);
+      }
     }
 
     const updates: string[] = [];
@@ -192,13 +219,9 @@ app.patch(
       updates.push('allow_multiple = ?');
       values.push(body.allowMultiple ? 1 : 0);
     }
-    if (body.selectionType !== undefined) {
-      updates.push('selection_type = ?');
-      values.push(body.selectionType);
-    }
-    if (body.optionGroup !== undefined) {
-      updates.push('option_group = ?');
-      values.push(body.optionGroup);
+    if (body.groupId !== undefined) {
+      updates.push('group_id = ?');
+      values.push(body.groupId);
     }
 
     if (updates.length === 0) {
