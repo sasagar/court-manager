@@ -129,37 +129,12 @@ export function ReservationCard({
         </span>
       </div>
 
-      {/* Header Row 2: 時間 */}
-      <div className="text-sm text-gray-600 mb-2">
-        {formatTimeJST(data.startTime)} - {formatTimeJST(data.estimatedEndTime)}
-      </div>
-
-      {/* Customer Info */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-gray-800">
-          <span className="font-medium text-base">{data.displayName}</span>
-          <span className="text-gray-500 ml-2">{data.displayCount}名</span>
-        </div>
-        {/* Payment Status */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            if (onTogglePaymentStatus) {
-              handleAction(onTogglePaymentStatus);
-            }
-          }}
-          disabled={loading || !onTogglePaymentStatus}
-          className={`px-2 py-0.5 text-xs rounded-full whitespace-nowrap ${getPaymentStatusColor(data.paymentStatus)} ${
-            onTogglePaymentStatus ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'
-          }`}
-        >
-          {getPaymentStatusLabel(data.paymentStatus)}
-        </button>
-      </div>
-
-      {/* Assignments */}
-      {data.assignments.length > 0 && (
-        <div className="mb-2">
+      {/* Header Row 2: 時間 + 担当スタッフ */}
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <span className="text-sm text-gray-600">
+          {formatTimeJST(data.startTime)} - {formatTimeJST(data.estimatedEndTime)}
+        </span>
+        {data.assignments.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {data.assignments.map((assignment) => (
               <span
@@ -188,8 +163,32 @@ export function ReservationCard({
               </span>
             ))}
           </div>
+        )}
+      </div>
+
+      {/* Customer Info */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-gray-800">
+          <span className="font-medium text-base">{data.displayName}</span>
+          <span className="text-gray-500 ml-2">{data.displayCount}名</span>
         </div>
-      )}
+        {/* Payment Status */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onTogglePaymentStatus) {
+              handleAction(onTogglePaymentStatus);
+            }
+          }}
+          disabled={loading || !onTogglePaymentStatus}
+          className={`px-2 py-0.5 text-xs rounded-full whitespace-nowrap ${getPaymentStatusColor(data.paymentStatus)} ${
+            onTogglePaymentStatus ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'
+          }`}
+        >
+          {getPaymentStatusLabel(data.paymentStatus)}
+        </button>
+      </div>
+
 
       {/* Options */}
       {data.options && data.options.length > 0 && (
