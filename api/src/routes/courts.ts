@@ -134,13 +134,24 @@ app.get(
         .bind(...sessionIds)
         .all();
 
-      // セッションIDごとにグループ化
+      // セッションIDごとにグループ化（キャメルケースに変換）
       for (const assignment of assignmentResults.results) {
         const sessionId = assignment.session_id as number;
         if (!assignments[sessionId]) {
           assignments[sessionId] = [];
         }
-        assignments[sessionId].push(assignment);
+        assignments[sessionId].push({
+          id: assignment.id,
+          sessionId: assignment.session_id,
+          shiftId: assignment.shift_id,
+          staffId: assignment.staff_id,
+          staffName: assignment.staff_name,
+          staffColor: assignment.staff_color,
+          scheduledStartTime: assignment.scheduled_start_time,
+          scheduledEndTime: assignment.scheduled_end_time,
+          status: assignment.status,
+          handoverNote: assignment.handover_note,
+        });
       }
     }
 

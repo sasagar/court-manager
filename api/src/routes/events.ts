@@ -198,7 +198,18 @@ app.get(
         if (!assignments[sessionId]) {
           assignments[sessionId] = [];
         }
-        assignments[sessionId].push(assignment);
+        assignments[sessionId].push({
+          id: assignment.id,
+          sessionId: assignment.session_id,
+          shiftId: assignment.shift_id,
+          staffId: assignment.staff_id,
+          staffName: assignment.staff_name,
+          staffColor: assignment.staff_color,
+          scheduledStartTime: assignment.scheduled_start_time,
+          scheduledEndTime: assignment.scheduled_end_time,
+          status: assignment.status,
+          handoverNote: assignment.handover_note,
+        });
       }
 
       for (const option of optionsResults.results) {
