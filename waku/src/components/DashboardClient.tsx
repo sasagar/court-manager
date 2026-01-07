@@ -69,6 +69,7 @@ function buildReservationCards(courts: CourtWithSession[]): ReservationCardData[
             planName: session.planName,
             planShortName: session.planShortName,
             assignments: session.assignments,
+            options: session.options,
           });
         }
       } else {
@@ -88,6 +89,7 @@ function buildReservationCards(courts: CourtWithSession[]): ReservationCardData[
           planName: session.planName,
           planShortName: session.planShortName,
           assignments: session.assignments,
+          options: session.options,
         });
       }
     }

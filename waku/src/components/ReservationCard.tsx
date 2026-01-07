@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { Session, SessionBooking, Shift, Assignment } from '../lib/api-client';
+import type { Session, SessionBooking, Shift, Assignment, SessionOption } from '../lib/api-client';
 import { formatTimeJST } from '../lib/time-utils';
 import {
   getSessionStatusLabel,
@@ -33,6 +33,7 @@ export type ReservationCardData = {
   planName?: string;
   planShortName?: string;
   assignments: Assignment[];
+  options?: SessionOption[];
 };
 
 type ReservationCardProps = {
@@ -163,13 +164,12 @@ export function ReservationCard({
             {data.assignments.map((assignment) => (
               <span
                 key={assignment.id}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full"
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border"
                 style={{
                   backgroundColor: assignment.staffColor
                     ? `${assignment.staffColor}20`
                     : '#e5e7eb',
                   borderColor: assignment.staffColor || '#9ca3af',
-                  borderWidth: '1px',
                 }}
               >
                 {assignment.staffName}
@@ -185,6 +185,23 @@ export function ReservationCard({
                     ×
                   </button>
                 )}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Options */}
+      {data.options && data.options.length > 0 && (
+        <div className="mb-2">
+          <div className="flex flex-wrap gap-1">
+            {data.options.map((option) => (
+              <span
+                key={option.id}
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700 border border-purple-300"
+              >
+                {option.optionName}
+                {option.quantity > 1 && <span className="font-medium">×{option.quantity}</span>}
               </span>
             ))}
           </div>
