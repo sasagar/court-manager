@@ -1,0 +1,24 @@
+name = "court-management-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database binding
+# Run: wrangler d1 create court-management-db
+# Then update the database_id below
+[[d1_databases]]
+binding = "DB"
+database_name = "court-management-db"
+database_id = "your-database-id-here"
+
+# R2 Storage binding for images
+# Run: wrangler r2 bucket create court-management-images
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "court-management-images"
+
+[vars]
+BETTER_AUTH_URL = "https://your-api-domain.workers.dev"
+
+# For production, set secrets using:
+# wrangler secret put BETTER_AUTH_SECRET

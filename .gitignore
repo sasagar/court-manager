@@ -1,0 +1,28 @@
+node_modules
+dist
+.claude
+.env
+.env.*
+!.env.example
+plan.md
+CLAUDE.md
+
+# Wrangler local state (D1 local database, etc.)
+.wrangler
+
+# Wrangler config (contains database IDs and environment-specific settings)
+wrangler.toml
+!wrangler.toml.example
+
+# OS files
+.DS_Store
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*

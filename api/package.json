@@ -1,0 +1,22 @@
+{
+  "name": "court-management-api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 execute court-management-db --local --file",
+    "db:migrate:remote": "wrangler d1 execute court-management-db --remote --file"
+  },
+  "dependencies": {
+    "better-auth": "^1.0.0",
+    "drizzle-orm": "^0.45.1",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.57.0"
+  }
+}
