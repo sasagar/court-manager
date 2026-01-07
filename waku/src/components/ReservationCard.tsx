@@ -105,40 +105,38 @@ export function ReservationCard({
       }}
       onClick={onCardClick}
     >
-      {/* Header: コート名 | 時間 | プラン名 */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="font-semibold text-gray-800">{data.courtName}</span>
-          <span className="text-gray-400">|</span>
-          <span className="text-gray-600">
-            {formatTimeJST(data.startTime)} - {formatTimeJST(data.estimatedEndTime)}
-          </span>
+      {/* Header Row 1: コート名 + プラン名 + ステータス */}
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-gray-800 whitespace-nowrap">{data.courtName}</span>
           {data.planShortName && (
-            <>
-              <span className="text-gray-400">|</span>
-              <span
-                className="px-2 py-0.5 text-xs rounded-full"
-                style={{
-                  backgroundColor: data.displayColor ? `${data.displayColor}30` : '#e5e7eb',
-                  color: data.displayColor || '#374151',
-                }}
-              >
-                {data.planShortName}
-              </span>
-            </>
+            <span
+              className="px-2 py-0.5 text-xs rounded-full whitespace-nowrap"
+              style={{
+                backgroundColor: data.displayColor ? `${data.displayColor}30` : '#e5e7eb',
+                color: data.displayColor || '#374151',
+              }}
+            >
+              {data.planShortName}
+            </span>
           )}
         </div>
         <span
-          className={`px-2 py-0.5 text-xs font-medium rounded-full ${getSessionStatusBadgeColor(status)}`}
+          className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${getSessionStatusBadgeColor(status)}`}
         >
           {getSessionStatusLabel(status)}
         </span>
       </div>
 
+      {/* Header Row 2: 時間 */}
+      <div className="text-sm text-gray-600 mb-2">
+        {formatTimeJST(data.startTime)} - {formatTimeJST(data.estimatedEndTime)}
+      </div>
+
       {/* Customer Info */}
       <div className="flex items-center justify-between mb-2">
         <div className="text-gray-800">
-          <span className="font-medium">{data.displayName}</span>
+          <span className="font-medium text-base">{data.displayName}</span>
           <span className="text-gray-500 ml-2">{data.displayCount}名</span>
         </div>
         {/* Payment Status */}
@@ -150,7 +148,7 @@ export function ReservationCard({
             }
           }}
           disabled={loading || !onTogglePaymentStatus}
-          className={`px-2 py-0.5 text-xs rounded-full ${getPaymentStatusColor(data.paymentStatus)} ${
+          className={`px-2 py-0.5 text-xs rounded-full whitespace-nowrap ${getPaymentStatusColor(data.paymentStatus)} ${
             onTogglePaymentStatus ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'
           }`}
         >
