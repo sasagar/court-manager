@@ -33,7 +33,8 @@ app.get(
     const facilityId = c.get('facilityId');
     const sessionId = c.req.param('sessionId');
 
-    const session = await c.env.DB.prepare(`
+    try {
+      const session = await c.env.DB.prepare(`
       SELECT
         cs.id,
         cs.court_id,
@@ -57,29 +58,30 @@ app.get(
       LEFT JOIN courts co ON cs.court_id = co.id
       WHERE cs.id = ? AND cs.facility_id = ?
     `)
-      .bind(sessionId, facilityId)
-      .first<Record<string, unknown>>();
+        .bind(sessionId, facilityId)
+        .first<Record<string, unknown>>();
 
-    if (!session) {
-      return c.json({ error: 'Session not found' }, 404);
-    }
+      if (!session) {
+        return c.json({ error: 'Session not found' }, 404);
+      }
 
-    // オプション情報を取得
-    const options = await c.env.DB.prepare(`
+      // オプション情報を取得
+      const options = await c.env.DB.prepare(`
       SELECT
         so.option_id,
         so.quantity,
         po.name as option_name,
-        po.selection_type
+        og.selection_type
       FROM session_options so
       JOIN plan_options po ON so.option_id = po.id
+      LEFT JOIN option_groups og ON po.group_id = og.id
       WHERE so.session_id = ?
     `)
-      .bind(sessionId)
-      .all<{ option_id: string; quantity: number; option_name: string; selection_type: string }>();
+        .bind(sessionId)
+        .all<{ option_id: string; quantity: number; option_name: string; selection_type: string | null }>();
 
-    // アサインメント情報を取得
-    const assignments = await c.env.DB.prepare(`
+      // アサインメント情報を取得
+      const assignments = await c.env.DB.prepare(`
       SELECT
         sa.id,
         sa.shift_id,
@@ -96,59 +98,74 @@ app.get(
       WHERE sa.session_id = ? AND sa.status IN ('scheduled', 'active')
       ORDER BY sa.scheduled_start_time
     `)
-      .bind(sessionId)
-      .all<{
-        id: number;
-        shift_id: string;
-        scheduled_start_time: number;
-        scheduled_end_time: number | null;
-        status: string;
-        handover_note: string | null;
-        staff_id: string;
-        staff_name: string;
-        staff_color: string | null;
-      }>();
+        .bind(sessionId)
+        .all<{
+          id: number;
+          shift_id: string;
+          scheduled_start_time: number;
+          scheduled_end_time: number | null;
+          status: string;
+          handover_note: string | null;
+          staff_id: string;
+          staff_name: string;
+          staff_color: string | null;
+        }>();
 
-    // セッションのis_slot_basedまたはプランのis_slot_basedを使用（後方互換性）
-    const isSlotBased = session.is_slot_based === 1 || session.plan_is_slot_based === 1;
+      // セッションのis_slot_basedまたはプランのis_slot_basedを使用（後方互換性）
+      const isSlotBased = session.is_slot_based === 1 || session.plan_is_slot_based === 1;
 
-    return c.json({
-      session: {
-        id: session.id,
-        courtId: session.court_id,
-        courtName: session.court_name,
-        planId: session.plan_id,
-        planName: session.plan_name,
-        customerName: session.customer_name,
-        customerCount: session.customer_count,
-        startTime: session.start_time,
-        estimatedEndTime: session.estimated_end_time,
-        status: session.status,
-        memo: session.memo,
-        displayColor: session.display_color,
-        isSlotBased,
-        maxCapacity: session.max_capacity,
-        paymentStatus: session.payment_status || 'unpaid',
-        createdAt: session.created_at,
-        options: options.results.map((opt) => ({
-          optionId: opt.option_id,
-          optionName: opt.option_name,
-          quantity: opt.quantity,
-          selectionType: opt.selection_type,
-        })),
-        assignments: assignments.results.map((a) => ({
-          id: a.id,
-          shiftId: a.shift_id,
-          staffId: a.staff_id,
-          staffName: a.staff_name,
-          staffColor: a.staff_color,
-          scheduledStartTime: a.scheduled_start_time,
-          scheduledEndTime: a.scheduled_end_time,
-          status: a.status,
-          handoverNote: a.handover_note,
-        })),
-      },
-    });
+      return c.json({
+        session: {
+          id: session.id,
+          courtId: session.court_id,
+          courtName: session.court_name,
+          planId: session.plan_id,
+          planName: session.plan_name,
+          customerName: session.customer_name,
+          customerCount: session.customer_count,
+          startTime: session.start_time,
+          estimatedEndTime: session.estimated_end_time,
+          status: session.status,
+          memo: session.memo,
+          displayColor: session.display_color,
+          isSlotBased,
+          maxCapacity: session.max_capacity,
+          paymentStatus: session.payment_status || 'unpaid',
+          createdAt: session.created_at,
+          options: options.results.map((opt) => ({
+            optionId: opt.option_id,
+            optionName: opt.option_name,
+            quantity: opt.quantity,
+            selectionType: opt.selection_type,
+          })),
+          assignments: assignments.results.map((a) => ({
+            id: a.id,
+            shiftId: a.shift_id,
+            staffId: a.staff_id,
+            staffName: a.staff_name,
+            staffColor: a.staff_color,
+            scheduledStartTime: a.scheduled_start_time,
+            scheduledEndTime: a.scheduled_end_time,
+            status: a.status,
+            handoverNote: a.handover_note,
+          })),
+        },
+      });
+    } catch (error) {
+      console.error('Error fetching session detail:', {
+        facilityId,
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      return c.json(
+        {
+          error: 'Failed to fetch session detail',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        },
+        500
+      );
+    }
   }
 );
 
