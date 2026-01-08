@@ -37,6 +37,7 @@ export function createAuth(env: Env) {
         path: '/',
         partitioned: true,
       },
+      disableCSRFCheck: true, // 一時的にCSRFチェックを無効化（診断用）
     },
   });
 }

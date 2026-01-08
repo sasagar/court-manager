@@ -40,8 +40,22 @@ app.use(
 
 // Better Auth ハンドラー
 app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
-  const auth = createAuth(c.env);
-  return auth.handler(c.req.raw);
+  try {
+    const auth = createAuth(c.env);
+    return await auth.handler(c.req.raw);
+  } catch (error) {
+    console.error('Auth handler error:', error);
+    console.error('Request URL:', c.req.url);
+    console.error('Request method:', c.req.method);
+    console.error('Origin header:', c.req.header('origin'));
+    return c.json(
+      {
+        error: 'Authentication error',
+        message: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
 });
 
 // ヘルスチェック
